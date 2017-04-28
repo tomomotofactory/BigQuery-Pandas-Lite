@@ -2,6 +2,7 @@ import google.auth
 from google.cloud import bigquery
 import pandas as pd
 import numpy as np
+import time
 from google.cloud.bigquery.schema import SchemaField
 from google.oauth2 import service_account
 from .bqlite_table import BQLiteTable
@@ -77,6 +78,9 @@ class BQLite:
         if max_results is not None:
             query.maxResults = max_results
         query.run(client=client)
+
+        if not query.complete:
+            BQLite._wait_for_job(query.job)
 
         # get result
         rows, total_rows, page_token = query.fetch_data()
@@ -225,3 +229,13 @@ class BQLite:
             fields.append(SchemaField(column_name, type_mapping.get(dtype.kind, 'STRING')))
 
         return fields
+
+    @staticmethod
+    def _wait_for_job(job):
+        while True:
+            job.reload()
+            if job.state == 'DONE':
+                if job.error_result:
+                    raise RuntimeError(job.error_result)
+                return
+            time.sleep(1)
