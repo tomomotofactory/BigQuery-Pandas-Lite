@@ -87,6 +87,9 @@ class BQLite:
             for row_index in range(len(rows)):
                 rows[row_index].extend(tmp_rows[row_index])
 
+        if query.schema is None:
+            return None
+
         return BQLite._to_df(rows, query.schema)
 
     def to_bq(self, load_df, project_name, dataset_name, table_name):
