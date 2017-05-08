@@ -3,6 +3,7 @@ from google.cloud import bigquery
 import pandas as pd
 import numpy as np
 import time
+import datetime
 from google.cloud.bigquery.schema import SchemaField
 from google.oauth2 import service_account
 from .bqlite_table import BQLiteTable
@@ -75,8 +76,7 @@ class BQLite:
         query = client.run_sync_query(sql)
         query.use_legacy_sql = use_legacy_sql
         query.use_query_cache = use_query_cache
-        if max_results is not None:
-            query.maxResults = max_results
+        query.maxResults = max_results
         query.run(client=client)
 
         if not query.complete:
@@ -96,13 +96,48 @@ class BQLite:
 
         return BQLite._to_df(rows, query.schema)
 
+    def read_to_bq(self, sql, project_name, write_dataset_name, write_table_name, write_disposition='WRITE_TRUNCATE',
+                   use_legacy_sql=False, use_query_cache=False, max_results=None, wait_timeout=1800):
+        """
+        write data to BigQuery by sql.
+        :param sql: select query
+        :param project_name: target BigQuery project name
+        :param write_dataset_name: write dataset name
+        :param write_table_name: write table name
+        :param write_disposition: query option about writing
+        :param use_legacy_sql: query option about select
+        :param use_query_cache: query option about select
+        :param max_results: query option about select
+        :param wait_timeout: waiting time for finishing job (sec)
+        """
+        client = self._prepare_client(project_name)
+
+        write_dataset = client.dataset(write_dataset_name)
+        write_table = write_dataset.table(write_table_name)
+        job_name = write_dataset_name + '_' + write_table_name + "_read_to_bq"\
+                   + datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        # run sql
+        query = client.run_async_query(job_name, sql)
+        query.use_legacy_sql = use_legacy_sql
+        query.use_query_cache = use_query_cache
+        query.maxResults = max_results
+        query.destination = write_table
+        query.write_disposition = write_disposition
+        query.begin(client)
+
+        retry_count = wait_timeout/10
+        while retry_count > 0 and query.state != 'DONE':
+            retry_count -= 1
+            time.sleep(10)
+            query.reload()
+
     def to_bq(self, load_df, project_name, dataset_name, table_name):
         """
         write data to BigQuery. If BigQuery`s table doesn`t exist method create BigQuery`s table.
-        :param load_df:
-        :param project_name:
-        :param dataset_name:
-        :param table_name:
+        :param load_df: loading pandas.Dataframe
+        :param project_name: write project name
+        :param dataset_name: write dataset name
+        :param table_name: write table name
         """
         client = self._prepare_client(project_name)
         dataset = BQLite._prepare_dataset(client, dataset_name)

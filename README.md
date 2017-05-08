@@ -53,6 +53,17 @@ bq.to_bq(load_df=load_pandas_dataframe, project_name='your_project',
          dataset_name='your_dataset', table_name='your_table')
 ```
 
+### write to bigQuery by sql
+```python
+from bqlite import BQLite
+
+bq = BQLite()
+bq.read_to_bq(sql='SELECT * FROM `nyc-tlc.green.trips_2014`',
+              project_name='input_your_project_id',
+              write_dataset_name='input_write_project_id',
+              write_table_name='input_write_table_name')
+```
+
 ### create table
 ```python
 from bqlite import BQLite
