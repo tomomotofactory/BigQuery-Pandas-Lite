@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name='BigQuery-Pandas-Lite',
-    version='1.0.0',
+    version='1.1.1',
     description='Simple bigQuery client.',
     license='Apache 2.0',
     author='tomomoto',
