@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import time
 import datetime
+import logging
 from google.cloud.bigquery.schema import SchemaField
 from google.oauth2 import service_account
 from .bqlite_table import BQLiteTable
@@ -20,8 +21,12 @@ class BQLite:
         :param credentials: credentials object. Only supports credentials from google-auth-library-python.
         :param json_key_filepath: json key filepath about credentials.
         """
-        self.credentials = credentials
-        self.json_key_filepath = json_key_filepath
+        self.__credentials = credentials
+        self.__json_key_filepath = json_key_filepath
+
+        logging.basicConfig()
+        self.__logger = logging.getLogger(__name__)
+        self.__logger.setLevel(logging.INFO)
 
     def create_table(self, schema_df: pd.DataFrame, project_name: str, dataset_name: str, table_name: str):
         """
@@ -146,10 +151,10 @@ class BQLite:
         if table.exists(client):
             table.reload(client)
         else:
-            print('Table {}:{} does not exist.'.format(dataset_name, table_name))
+            self.__logger.info('Table {}:{} does not exist.'.format(dataset_name, table_name))
             table.schema = BQLite._to_bq_schema(load_df)
             table.create()
-            print('Create Table {}:{}.'.format(dataset_name, table_name))
+            self.__logger.info('Create Table {}:{}.'.format(dataset_name, table_name))
 
         # cast to original table class for using null value.
         table.__class__ = BQLiteTable
@@ -157,20 +162,20 @@ class BQLite:
         errors = table.insert_data(rows, client=client)
         if errors:
             raise Exception(errors)
-        print('Loaded data into {}:{}'.format(dataset_name, table_name))
+        self.__logger.info('Loaded data into {}:{}'.format(dataset_name, table_name))
 
     def _prepare_client(self, project_name: str):
         return bigquery.Client(project=project_name, credentials=self._generate_credential())
 
     def _generate_credential(self):
-        if self.credentials is not None:
-            return self.credentials
+        if self.__credentials is not None:
+            return self.__credentials
 
-        elif self.json_key_filepath is not None:
-            return service_account.Credentials.from_service_account_file(self.json_key_filepath)
+        elif self.__json_key_filepath is not None:
+            return service_account.Credentials.from_service_account_file(self.__json_key_filepath)
 
         # no setup parameter case use default credentials
-        print("no setup parameter case get credentials by google_auth.default()")
+        self.__logger.info("no setup parameter case get credentials by google_auth.default()")
         credentials, df_project = google.auth.default()
         return credentials
 
@@ -187,7 +192,7 @@ class BQLite:
         def _to_flg(_val) -> bool:
             return _val == 'true'
 
-        def _cast_all_column(_row_values, _col_type, _no_in_row=None):
+        def _cast_all_column(values, values_type, row_no=None):
             _cast_mapping = {
                 'STRING':    (str,          None),
                 'DATETIME':  (str,          None),
@@ -198,31 +203,31 @@ class BQLite:
                 'BOOLEAN':   (_to_flg,      np.dtype(bool)),
                 'TIMESTAMP': (pd.Timestamp, 'datetime64[ns]')
             }
-            _cast_func, _col_new_type = _cast_mapping.get(_col_type, (None, None))
+            _cast_func, _col_new_type = _cast_mapping.get(values_type, (None, None))
 
             if _cast_func is None:
-                raise Exception('Not Support to type:' + _col_type + '.')
-            _row_values = _cast_column(_row_values, _cast_func, _no_in_row)
+                raise Exception('Not Support to type:' + values_type + '.')
+            values = _cast_column(values, _cast_func, row_no)
 
-            return _row_values, _col_new_type
+            return values, _col_new_type
 
-        def _cast_column(_row_values, _cast_func, _no_in_row=None):
-            if _no_in_row is None:
+        def _cast_column(values, cast_function, row_no=None):
+            if row_no is None:
                 # is not repeated
-                for _row_no in range(len(_row_values)):
-                    if _row_values[_row_no] is not None:
-                        _row_values[_row_no] = _cast_func(_row_values[_row_no])
-                return _row_values
+                for _row_no in range(len(values)):
+                    if values[_row_no] is not None:
+                        values[_row_no] = cast_function(values[_row_no])
+                return values
 
             else:
                 # is repeated
                 _col_values = [None for x in range(len(row_values))]
-                if _no_in_row is None:
+                if row_no is None:
                     raise Exception('Repeated column need _no_in_row parameter.')
 
-                for _row_no in range(len(_row_values)):
-                    if _no_in_row < len(_row_values[_row_no]) and _row_values[_row_no][_no_in_row] is not None:
-                        _col_values[_row_no] = _cast_func(_row_values[_row_no][_no_in_row])
+                for _row_no in range(len(values)):
+                    if row_no < len(values[_row_no]) and values[_row_no][row_no] is not None:
+                        _col_values[_row_no] = cast_function(values[_row_no][row_no])
                 return _col_values
 
         columns_data = []
@@ -236,7 +241,7 @@ class BQLite:
             if col_mode == 'REPEATED':
                 max_row_length = max([len(row_value) for row_value in row_values])
                 for no_in_row in range(max_row_length):
-                    col_values, col_new_type = _cast_all_column(row_values, col_type, _no_in_row=no_in_row)
+                    col_values, col_new_type = _cast_all_column(row_values, col_type, row_no=no_in_row)
                     columns_data.append((col_name+"_"+str(no_in_row), pd.Series(data=col_values, dtype=col_new_type)))
                     del col_values
 
